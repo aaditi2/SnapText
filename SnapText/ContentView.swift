@@ -1,98 +1,93 @@
 import SwiftUI
-import Vision
 import VisionKit
-import PhotosUI
-import UniformTypeIdentifiers
+import Vision
 
 struct ContentView: View {
-    @State private var isCameraPresented = false
-    @State private var isPhotoPickerPresented = false
-    @State private var isDocumentPickerPresented = false
+    @State private var showCamera = false
+    @State private var showPhotoLibrary = false
+    @State private var showDocumentPicker = false
     @State private var extractedText: String = ""
-    @State private var showTextEditor = false
-    @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var showMenu = false
+    @State private var selectedImage: UIImage?
+    @State private var savedDocs: [SavedDoc] = []
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 25) {
-                Text("📸 SnapText")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
+            VStack(spacing: 20) {
+                Text("SnapText")
+                    .font(.largeTitle)
+                    .bold()
 
-                Button(action: {
-                    showMenu.toggle()
-                }) {
-                    Text("Upload from...")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                HStack(spacing: 20) {
+                    Button("📷 Camera") { showCamera = true }
+                    Button("🖼️ Gallery") { showPhotoLibrary = true }
+                    Button("📁 Drive") { showDocumentPicker = true }
                 }
 
-                if showMenu {
-                    VStack(spacing: 12) {
-                        Button("Camera") { isCameraPresented = true }
-                        Button("Gallery") { isPhotoPickerPresented = true }
-                        Button("Drive") { isDocumentPickerPresented = true }
+                if let image = selectedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 200)
+                }
+
+                TextEditor(text: $extractedText)
+                    .frame(height: 150)
+                    .border(Color.gray)
+
+                if !extractedText.isEmpty {
+                    Button("💾 Save as Document") {
+                        let doc = SavedDoc(id: UUID(), text: extractedText)
+                        savedDocs.append(doc)
+                        extractedText = ""
+                        selectedImage = nil
                     }
-                    .padding(.horizontal)
                 }
 
-                if showTextEditor {
-                    Text("📝 Extracted Text:")
-                        .font(.headline)
-                        .padding(.top)
+                NavigationLink("🗂️ Docs Gallery", destination: DocsGalleryView(savedDocs: $savedDocs))
 
-                    TextEditor(text: $extractedText)
-                        .frame(height: 250)
-                        .padding()
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray))
+                Spacer()
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                Camera { image in
+                    handleImage(image)
                 }
+            }
+            .sheet(isPresented: $showPhotoLibrary) {
+                ImagePicker(sourceType: .photoLibrary) { image in handleImage(image) }
+            }
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPicker { image in handleImage(image) }
             }
             .padding()
-            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhotoItem, matching: .images)
-            .onChange(of: selectedPhotoItem) { newItem in
-                if let item = newItem {
-                    item.loadTransferable(type: Data.self) { result in
-                        switch result {
-                        case .success(let data):
-                            if let data = data, let uiImage = UIImage(data: data) {
-                                recognizeText(from: uiImage)
-                            }
-                        default: break
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $isDocumentPickerPresented) {
-                DocumentPicker { image in
-                    recognizeText(from: image)
-                }
-            }
-            .fullScreenCover(isPresented: $isCameraPresented) {
-                Camera { image in
-                    recognizeText(from: image)
-                }
-            }
         }
     }
 
-    func recognizeText(from image: UIImage) {
+    func handleImage(_ image: UIImage) {
+        selectedImage = image
+        extractText(from: image)
+    }
+
+    func extractText(from image: UIImage) {
         guard let cgImage = image.cgImage else { return }
 
-        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         let request = VNRecognizeTextRequest { request, error in
-            guard let observations = request.results as? [VNRecognizedTextObservation], error == nil else { return }
-            let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-            DispatchQueue.main.async {
-                extractedText = text
-                showTextEditor = true
+            if let observations = request.results as? [VNRecognizedTextObservation] {
+                DispatchQueue.main.async {
+                    extractedText = observations
+                        .compactMap { $0.topCandidates(1).first?.string }
+                        .joined(separator: "\n")
+                }
             }
         }
-
         request.recognitionLevel = .accurate
-        try? requestHandler.perform([request])
+        request.usesLanguageCorrection = true
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try? handler.perform([request])
     }
+}
+
+struct SavedDoc: Identifiable, Codable {
+    let id: UUID
+    var text: String
 }
