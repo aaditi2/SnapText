@@ -108,10 +108,8 @@ struct ContentView: View {
                 handleImage(image)
             }
         }
-        .sheet(isPresented: $showCamera) {
-            Camera { image in
-                handleImage(image)
-            }
+        .fullScreenCover(isPresented: $showCamera) {
+            Camera { image in handleImage(image) }
         }
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPicker { image in
