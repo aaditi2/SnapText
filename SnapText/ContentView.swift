@@ -1,80 +1,98 @@
 import SwiftUI
-import VisionKit
 import Vision
+import VisionKit
+import PhotosUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var showImagePicker = false
-    @State private var selectedImage: UIImage?
+    @State private var isCameraPresented = false
+    @State private var isPhotoPickerPresented = false
+    @State private var isDocumentPickerPresented = false
     @State private var extractedText: String = ""
+    @State private var showTextEditor = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showMenu = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("SnapText")
-                .font(.largeTitle)
-                .bold()
-                .padding(.top)
+        NavigationView {
+            VStack(spacing: 25) {
+                Text("📸 SnapText")
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
 
-            if let image = selectedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal)
-            }
-
-            Button(action: {
-                showImagePicker = true
-            }) {
-                Text("Open Camera")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(width: 200)
-                    .background(Color.blue)
-                    .cornerRadius(12)
-            }
-
-            if !extractedText.isEmpty {
-                Text("Extracted Text:")
-                    .font(.headline)
-                    .padding(.top)
-
-                ScrollView {
-                    Text(extractedText)
+                Button(action: {
+                    showMenu.toggle()
+                }) {
+                    Text("Upload from...")
+                        .font(.headline)
                         .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
                 }
-                .background(Color(UIColor.systemGray6))
-                .cornerRadius(10)
-                .padding()
-            }
 
-            Spacer()
-        }
-        .fullScreenCover(isPresented: $showImagePicker) {
-            ImagePicker(sourceType: .camera) { image in
-                self.selectedImage = image
-                recognizeText(from: image)
+                if showMenu {
+                    VStack(spacing: 12) {
+                        Button("Camera") { isCameraPresented = true }
+                        Button("Gallery") { isPhotoPickerPresented = true }
+                        Button("Drive") { isDocumentPickerPresented = true }
+                    }
+                    .padding(.horizontal)
+                }
+
+                if showTextEditor {
+                    Text("📝 Extracted Text:")
+                        .font(.headline)
+                        .padding(.top)
+
+                    TextEditor(text: $extractedText)
+                        .frame(height: 250)
+                        .padding()
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray))
+                }
+            }
+            .padding()
+            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) { newItem in
+                if let item = newItem {
+                    item.loadTransferable(type: Data.self) { result in
+                        switch result {
+                        case .success(let data):
+                            if let data = data, let uiImage = UIImage(data: data) {
+                                recognizeText(from: uiImage)
+                            }
+                        default: break
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $isDocumentPickerPresented) {
+                DocumentPicker { image in
+                    recognizeText(from: image)
+                }
+            }
+            .fullScreenCover(isPresented: $isCameraPresented) {
+                Camera { image in
+                    recognizeText(from: image)
+                }
             }
         }
     }
 
-    private func recognizeText(from image: UIImage) {
+    func recognizeText(from image: UIImage) {
         guard let cgImage = image.cgImage else { return }
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        let request = VNRecognizeTextRequest { (request, error) in
-            if let results = request.results as? [VNRecognizedTextObservation] {
-                let text = results.compactMap {
-                    $0.topCandidates(1).first?.string
-                }.joined(separator: "\n")
-                DispatchQueue.main.async {
-                    self.extractedText = text
-                }
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let request = VNRecognizeTextRequest { request, error in
+            guard let observations = request.results as? [VNRecognizedTextObservation], error == nil else { return }
+            let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+            DispatchQueue.main.async {
+                extractedText = text
+                showTextEditor = true
             }
         }
 
         request.recognitionLevel = .accurate
-        try? handler.perform([request])
+        try? requestHandler.perform([request])
     }
 }
