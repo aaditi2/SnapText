@@ -1,32 +1,17 @@
 import SwiftUI
 
 struct EditableDocView: View {
-    var doc: SavedDoc
-    @Binding var savedDocs: [SavedDoc]
-    @State private var text: String
-
-    init(doc: SavedDoc, savedDocs: Binding<[SavedDoc]>) {
-        self.doc = doc
-        self._savedDocs = savedDocs
-        self._text = State(initialValue: doc.text)
-    }
+    @Binding var doc: SavedDoc
 
     var body: some View {
         VStack {
-            TextEditor(text: $text)
+            TextEditor(text: $doc.text)
                 .padding()
-                .border(Color.gray)
-                .frame(maxHeight: .infinity)
-
-            Button("💾 Save Changes") {
-                if let index = savedDocs.firstIndex(where: { $0.id == doc.id }) {
-                    savedDocs[index].text = text
-                }
-            }
-            .padding()
-            .buttonStyle(.borderedProminent)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.gray.opacity(0.2)))
         }
-        .navigationTitle("📝 Edit Doc")
         .padding()
+        .navigationTitle("Edit Document")
     }
 }

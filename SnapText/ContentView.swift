@@ -1,93 +1,139 @@
 import SwiftUI
-import VisionKit
 import Vision
+import VisionKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var showCamera = false
+    @State private var showUploadOptions = false
     @State private var showPhotoLibrary = false
+    @State private var showCamera = false
     @State private var showDocumentPicker = false
-    @State private var extractedText: String = ""
     @State private var selectedImage: UIImage?
+    @State private var extractedText: String = ""
     @State private var savedDocs: [SavedDoc] = []
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                Text("SnapText")
-                    .font(.largeTitle)
-                    .bold()
+            ScrollView {
+                VStack(spacing: 25) {
+                    // App Header
+                    Text("📄 SnapText")
+                        .font(.system(size: 38, weight: .bold, design: .rounded))
 
-                HStack(spacing: 20) {
-                    Button("📷 Camera") { showCamera = true }
-                    Button("🖼️ Gallery") { showPhotoLibrary = true }
-                    Button("📁 Drive") { showDocumentPicker = true }
-                }
+                    Text("Capture. Extract. Edit. ")
+                        .font(.title3)
+                        .foregroundColor(.gray)
 
-                if let image = selectedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 200)
-                }
+                    // Upload Button (styled)
+                    Menu {
+                        Button {
+                            showPhotoLibrary = true
+                        } label: {
+                            Label("Photo Library", systemImage: "photo.on.rectangle")
+                        }
 
-                TextEditor(text: $extractedText)
-                    .frame(height: 150)
-                    .border(Color.gray)
+                        Button {
+                            showCamera = true
+                        } label: {
+                            Label("Take Photo or Video", systemImage: "camera")
+                        }
 
-                if !extractedText.isEmpty {
-                    Button("💾 Save as Document") {
-                        let doc = SavedDoc(id: UUID(), text: extractedText)
-                        savedDocs.append(doc)
-                        extractedText = ""
-                        selectedImage = nil
+                        Button {
+                            showDocumentPicker = true
+                        } label: {
+                            Label("Choose File", systemImage: "folder")
+                        }
+                    } label: {
+                        Label("Select File to Upload", systemImage: "plus.square")
+                            .font(.headline)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.blue.opacity(0.9))
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal, 20)
                     }
-                }
 
-                NavigationLink("🗂️ Docs Gallery", destination: DocsGalleryView(savedDocs: $savedDocs))
+                    // Show selected image
+                    if let image = selectedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 300)
+                            .cornerRadius(12)
 
-                Spacer()
-            }
-            .fullScreenCover(isPresented: $showCamera) {
-                Camera { image in
-                    handleImage(image)
+                        Text("✏️ Extracted Text")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+
+                        TextEditor(text: $extractedText)
+                            .padding()
+                            .frame(height: 200)
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(10)
+                    }
+
+                    // Save Button
+                    if !extractedText.isEmpty {
+                        Button("💾 Save as Document") {
+                            let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText)
+                            savedDocs.append(doc)
+                            extractedText = ""
+                            selectedImage = nil
+                        }
+                        .font(.headline)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 25)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                        .shadow(radius: 5)
+                    }
+
+                    // Link to Saved Documents
+                    NavigationLink("📚 Docs Gallery") {
+                        DocsGalleryView(savedDocs: $savedDocs)
+                    }
+                    .font(.headline)
+                    .padding(.top, 20)
                 }
+                .padding()
             }
-            .sheet(isPresented: $showPhotoLibrary) {
-                ImagePicker(sourceType: .photoLibrary) { image in handleImage(image) }
+            .navigationBarHidden(true)
+        }
+
+        // Upload Sheet Handling
+        .sheet(isPresented: $showPhotoLibrary) {
+            ImagePicker(sourceType: .photoLibrary) { image in
+                handleImage(image)
             }
-            .sheet(isPresented: $showDocumentPicker) {
-                DocumentPicker { image in handleImage(image) }
+        }
+        .sheet(isPresented: $showCamera) {
+            Camera { image in
+                handleImage(image)
             }
-            .padding()
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPicker { image in
+                handleImage(image)
+            }
         }
     }
 
-    func handleImage(_ image: UIImage) {
-        selectedImage = image
-        extractText(from: image)
-    }
-
-    func extractText(from image: UIImage) {
+    // OCR
+    private func handleImage(_ image: UIImage) {
+        self.selectedImage = image
         guard let cgImage = image.cgImage else { return }
 
-        let request = VNRecognizeTextRequest { request, error in
-            if let observations = request.results as? [VNRecognizedTextObservation] {
-                DispatchQueue.main.async {
-                    extractedText = observations
-                        .compactMap { $0.topCandidates(1).first?.string }
-                        .joined(separator: "\n")
-                }
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let request = VNRecognizeTextRequest { request, _ in
+            if let results = request.results as? [VNRecognizedTextObservation] {
+                let text = results.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                self.extractedText = text
             }
         }
+
         request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try? handler.perform([request])
+        try? requestHandler.perform([request])
     }
-}
-
-struct SavedDoc: Identifiable, Codable {
-    let id: UUID
-    var text: String
 }
