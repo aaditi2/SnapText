@@ -3,6 +3,12 @@ import Vision
 import VisionKit
 import UniformTypeIdentifiers
 
+// Wrapper for Identifiable UIImage
+struct IdentifiableImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
 struct ContentView: View {
     @State private var showPhotoLibrary = false
     @State private var showCamera = false
@@ -10,49 +16,47 @@ struct ContentView: View {
     @State private var selectedImage: UIImage?
     @State private var extractedText: String = ""
     @State private var savedDocs: [SavedDoc] = []
-
-    // New for title prompt
-    @State private var showTitlePrompt = false
-    @State private var newDocTitle: String = ""
+    
+    @State private var pendingImageForCropping: IdentifiableImage?
 
     var body: some View {
         NavigationView {
             ZStack {
                 Color(.systemGroupedBackground).ignoresSafeArea()
-
+                
                 ScrollView {
                     VStack(spacing: 24) {
-                        // App Header
+                        // Header
                         VStack(spacing: 4) {
                             Image(systemName: "doc.text.viewfinder")
                                 .resizable()
                                 .frame(width: 36, height: 36)
                                 .foregroundColor(.accentColor)
                                 .padding(.bottom, 4)
-
+                            
                             Text("SnapText")
                                 .font(.system(size: 26, weight: .semibold))
-
+                            
                             Text("Capture. Extract. Edit.")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top, 40)
-
-                        // Upload File Button
+                        
+                        // Upload Menu
                         Menu {
                             Button {
                                 showPhotoLibrary = true
                             } label: {
                                 Label("Photo Library", systemImage: "photo.on.rectangle")
                             }
-
+                            
                             Button {
                                 showCamera = true
                             } label: {
                                 Label("Take Photo", systemImage: "camera")
                             }
-
+                            
                             Button {
                                 showDocumentPicker = true
                             } label: {
@@ -72,8 +76,8 @@ struct ContentView: View {
                             .padding(.horizontal)
                             .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
                         }
-
-                        // Show selected image + OCR
+                        
+                        // Image + OCR Text Display
                         if let image = selectedImage {
                             VStack(alignment: .leading, spacing: 16) {
                                 Image(uiImage: image)
@@ -82,10 +86,10 @@ struct ContentView: View {
                                     .frame(maxHeight: 220)
                                     .cornerRadius(12)
                                     .shadow(radius: 3)
-
+                                
                                 Text("✏️ Extracted Text")
                                     .font(.system(size: 16, weight: .semibold))
-
+                                
                                 TextEditor(text: $extractedText)
                                     .font(.system(size: 14))
                                     .frame(height: 180)
@@ -95,11 +99,14 @@ struct ContentView: View {
                             }
                             .padding(.horizontal)
                         }
-
-                        // Save Button → Opens Title Prompt
+                        
+                        // Save Button
                         if !extractedText.isEmpty {
                             Button(action: {
-                                showTitlePrompt = true
+                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText)
+                                savedDocs.append(doc)
+                                extractedText = ""
+                                selectedImage = nil
                             }) {
                                 HStack {
                                     Image(systemName: "tray.and.arrow.down.fill")
@@ -114,7 +121,7 @@ struct ContentView: View {
                                 .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
                             }
                         }
-
+                        
                         // Docs Gallery
                         NavigationLink(destination: DocsGalleryView(savedDocs: $savedDocs)) {
                             Label("Docs Gallery", systemImage: "books.vertical.fill")
@@ -122,7 +129,7 @@ struct ContentView: View {
                                 .foregroundColor(.blue)
                                 .padding(.top, 10)
                         }
-
+                        
                         Spacer(minLength: 50)
                     }
                     .padding(.bottom, 40)
@@ -130,57 +137,28 @@ struct ContentView: View {
             }
             .navigationBarHidden(true)
         }
-
-        // Upload Sheets
+        
+        // Image Pickers
         .sheet(isPresented: $showPhotoLibrary) {
             ImagePicker(sourceType: .photoLibrary) { image in
                 handleImage(image)
             }
         }
-        .fullScreenCover(isPresented: $showCamera) {
-            Camera { image in handleImage(image) }
-        }
         .sheet(isPresented: $showDocumentPicker) {
-            DocumentPicker { image in handleImage(image) }
-        }
-
-        // Title Prompt Sheet
-        .sheet(isPresented: $showTitlePrompt) {
-            VStack(spacing: 20) {
-                Text("Name Your Document")
-                    .font(.headline)
-
-                TextField("Enter title here", text: $newDocTitle)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal)
-
-                Button("Save") {
-                    let title = newDocTitle.isEmpty ? "Untitled" : newDocTitle
-                    let doc = SavedDoc(id: UUID(), title: title, text: extractedText)
-                    savedDocs.append(doc)
-                    extractedText = ""
-                    selectedImage = nil
-                    newDocTitle = ""
-                    showTitlePrompt = false
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .padding(.vertical, 10)
-                .padding(.horizontal, 20)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
-                
-                Button("Cancel") {
-                    showTitlePrompt = false
-                    newDocTitle = ""
-                }
-                .foregroundColor(.red)
+            DocumentPicker { image in
+                handleImage(image)
             }
-            .padding()
+        }
+        
+        // Camera Capture → Crop
+        .fullScreenCover(isPresented: $showCamera) {
+            CustomCameraView { croppedImage in
+                handleImage(croppedImage)
+            }
         }
     }
 
-    // OCR logic
+    // OCR
     private func handleImage(_ image: UIImage) {
         self.selectedImage = image
         guard let cgImage = image.cgImage else { return }
