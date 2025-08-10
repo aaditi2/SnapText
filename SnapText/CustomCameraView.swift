@@ -1,13 +1,11 @@
 import SwiftUI
 
 struct CustomCameraView: UIViewControllerRepresentable {
-    var completion: (UIImage) -> Void
+    var onCapture: (UIImage) -> Void   // returns the CROPPED image
 
     func makeUIViewController(context: Context) -> CustomCameraViewController {
         let vc = CustomCameraViewController()
-        vc.onPhotoCropped = { image in
-            completion(image)
-        }
+        vc.onCapture = onCapture
         return vc
     }
 

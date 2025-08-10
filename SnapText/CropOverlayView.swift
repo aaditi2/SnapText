@@ -2,157 +2,186 @@ import UIKit
 
 final class CropOverlayView: UIView {
 
-    // The visible image frame inside the big view (aspectFit rect).
+    // Public: current crop rect (in this view’s coordinate space)
+    private(set) var cropRect: CGRect {
+        didSet { updateMaskPath() }
+    }
+
+    // Area we allow the crop to live in (the visible image frame)
     private let allowedRect: CGRect
 
-    // Current crop rect (always clamped inside allowedRect)
-    private(set) var cropRect: CGRect
+    // UI
+    private let maskLayer = CAShapeLayer()
+    private let borderLayer = CAShapeLayer()
 
-    // Corner handles
-    private let handleSize: CGFloat = 22
-    private lazy var handles: [UIView] = (0..<4).map { _ in UIView() }
+    // Handles
+    private let tl = Handle()
+    private let tr = Handle()
+    private let bl = Handle()
+    private let br = Handle()
 
-    // Pan to move the entire cropRect
-    private lazy var panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanWhole(_:)))
+    private let minSize: CGFloat = 60
 
-    init(frame: CGRect, allowedRect: CGRect, initialCrop: CGRect? = nil) {
+    // MARK: - Init
+    init(frame: CGRect, allowedRect: CGRect) {
         self.allowedRect = allowedRect
-        // Default to 70% of allowedRect if no initial rect provided
-        let defaultRect = allowedRect.insetBy(dx: allowedRect.width * 0.15, dy: allowedRect.height * 0.15)
-        self.cropRect = initialCrop?.intersection(allowedRect) ?? defaultRect
+        // initial crop rect = centered, 70% of allowed
+        let w = allowedRect.width * 0.7
+        let h = allowedRect.height * 0.7
+        self.cropRect = CGRect(x: allowedRect.midX - w/2,
+                               y: allowedRect.midY - h/2,
+                               width: w, height: h)
         super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // Expose for controller
+    var currentCropRect: CGRect { cropRect }
+
+    // MARK: - Setup
+    private func setup() {
         isUserInteractionEnabled = true
         backgroundColor = .clear
 
-        addGestureRecognizer(panGesture)
-        setupHandles()
-        updateHandlePositions()
-        setNeedsDisplay()
+        // Dim outside area
+        maskLayer.fillRule = .evenOdd
+        maskLayer.fillColor = UIColor.black.withAlphaComponent(0.45).cgColor
+        layer.addSublayer(maskLayer)
+
+        // Border
+        borderLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        borderLayer.fillColor = UIColor.clear.cgColor
+        borderLayer.lineWidth = 2
+        layer.addSublayer(borderLayer)
+
+        [tl, tr, bl, br].forEach { addSubview($0) }
+        positionHandles()
+
+        // Drag whole rect gesture
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(didPanWhole(_:)))
+        addGestureRecognizer(pan)
+
+        // Drag handles
+        tl.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(didPanTL(_:))))
+        tr.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(didPanTR(_:))))
+        bl.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(didPanBL(_:))))
+        br.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(didPanBR(_:))))
+
+        updateMaskPath()
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    // MARK: - Drawing: box + dimmed outside
-    override func draw(_ rect: CGRect) {
-        guard let ctx = UIGraphicsGetCurrentContext() else { return }
-
-        // Dim everything outside cropRect
-        ctx.saveGState()
-        let outsidePath = UIBezierPath(rect: bounds)
-        let cutoutPath = UIBezierPath(rect: cropRect)
-        outsidePath.append(cutoutPath)
-        outsidePath.usesEvenOddFillRule = true
-        UIColor.black.withAlphaComponent(0.5).setFill()
-        outsidePath.fill()
-        ctx.restoreGState()
-
-        // Crop rectangle border
-        let border = UIBezierPath(rect: cropRect)
-        border.lineWidth = 2
-        UIColor.white.setStroke()
-        border.stroke()
-
-        // Optional: rule-of-thirds grid
-        UIColor.white.withAlphaComponent(0.4).setStroke()
-        let grid = UIBezierPath()
-        // vertical thirds
-        grid.move(to: CGPoint(x: cropRect.minX + cropRect.width / 3, y: cropRect.minY))
-        grid.addLine(to: CGPoint(x: cropRect.minX + cropRect.width / 3, y: cropRect.maxY))
-        grid.move(to: CGPoint(x: cropRect.minX + 2 * cropRect.width / 3, y: cropRect.minY))
-        grid.addLine(to: CGPoint(x: cropRect.minX + 2 * cropRect.width / 3, y: cropRect.maxY))
-        // horizontal thirds
-        grid.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY + cropRect.height / 3))
-        grid.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY + cropRect.height / 3))
-        grid.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY + 2 * cropRect.height / 3))
-        grid.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY + 2 * cropRect.height / 3))
-        grid.lineWidth = 1
-        grid.stroke()
+    private func positionHandles() {
+        tl.center = cropRect.origin
+        tr.center = CGPoint(x: cropRect.maxX, y: cropRect.minY)
+        bl.center = CGPoint(x: cropRect.minX, y: cropRect.maxY)
+        br.center = CGPoint(x: cropRect.maxX, y: cropRect.maxY)
     }
 
-    // MARK: - Handles
-    private func setupHandles() {
-        for (i, h) in handles.enumerated() {
-            h.backgroundColor = .white
-            h.layer.cornerRadius = handleSize / 2
-            h.layer.borderWidth = 1
-            h.layer.borderColor = UIColor.black.cgColor
-            h.frame.size = CGSize(width: handleSize, height: handleSize)
-            h.isUserInteractionEnabled = true
-            addSubview(h)
+    private func updateMaskPath() {
+        let p = UIBezierPath(rect: bounds)
+        let inner = UIBezierPath(roundedRect: cropRect, cornerRadius: 8)
+        p.append(inner)
+        p.usesEvenOddFillRule = true
+        maskLayer.path = p.cgPath
 
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanCorner(_:)))
-            pan.name = "\(i)" // 0 TL, 1 TR, 2 BL, 3 BR
-            h.addGestureRecognizer(pan)
-        }
+        borderLayer.path = UIBezierPath(roundedRect: cropRect, cornerRadius: 8).cgPath
+        positionHandles()
     }
 
-    private func updateHandlePositions() {
-        // 0: TL, 1: TR, 2: BL, 3: BR
-        handles[0].center = CGPoint(x: cropRect.minX, y: cropRect.minY)
-        handles[1].center = CGPoint(x: cropRect.maxX, y: cropRect.minY)
-        handles[2].center = CGPoint(x: cropRect.minX, y: cropRect.maxY)
-        handles[3].center = CGPoint(x: cropRect.maxX, y: cropRect.maxY)
-    }
-
-    // MARK: - Gestures
-    @objc private func handlePanCorner(_ g: UIPanGestureRecognizer) {
-        let idx = Int(g.name ?? "") ?? 0
+    // MARK: - Pan (whole rect)
+    @objc private func didPanWhole(_ g: UIPanGestureRecognizer) {
         let t = g.translation(in: self)
         g.setTranslation(.zero, in: self)
 
-        var r = cropRect
-        let minSize: CGFloat = 60
+        var new = cropRect.offsetBy(dx: t.x, dy: t.y)
+        // constrain to allowed
+        if new.minX < allowedRect.minX { new.origin.x = allowedRect.minX }
+        if new.minY < allowedRect.minY { new.origin.y = allowedRect.minY }
+        if new.maxX > allowedRect.maxX { new.origin.x = allowedRect.maxX - new.width }
+        if new.maxY > allowedRect.maxY { new.origin.y = allowedRect.maxY - new.height }
 
-        switch idx {
-        case 0: // top-left
+        cropRect = new
+    }
+
+    // MARK: - Pan corners
+    @objc private func didPanTL(_ g: UIPanGestureRecognizer) { resize(using: g, corner: .tl) }
+    @objc private func didPanTR(_ g: UIPanGestureRecognizer) { resize(using: g, corner: .tr) }
+    @objc private func didPanBL(_ g: UIPanGestureRecognizer) { resize(using: g, corner: .bl) }
+    @objc private func didPanBR(_ g: UIPanGestureRecognizer) { resize(using: g, corner: .br) }
+
+    private enum Corner { case tl, tr, bl, br }
+
+    private func resize(using g: UIPanGestureRecognizer, corner: Corner) {
+        let t = g.translation(in: self)
+        g.setTranslation(.zero, in: self)
+        var r = cropRect
+
+        switch corner {
+        case .tl:
             r.origin.x += t.x
             r.origin.y += t.y
-            r.size.width -= t.x
+            r.size.width  -= t.x
             r.size.height -= t.y
-        case 1: // top-right
+        case .tr:
             r.origin.y += t.y
-            r.size.width += t.x
+            r.size.width  += t.x
             r.size.height -= t.y
-        case 2: // bottom-left
+        case .bl:
             r.origin.x += t.x
-            r.size.width -= t.x
+            r.size.width  -= t.x
             r.size.height += t.y
-        default: // 3 bottom-right
-            r.size.width += t.x
+        case .br:
+            r.size.width  += t.x
             r.size.height += t.y
         }
 
-        // Enforce min size
+        // enforce min size
         if r.width < minSize { r.size.width = minSize }
         if r.height < minSize { r.size.height = minSize }
 
-        // Clamp inside allowedRect
+        // keep top-left pinned for TL/BL, top-right for TR, etc. after min-size clamp
+        switch corner {
+        case .tl:
+            r.origin.x = min(r.origin.x, cropRect.maxX - minSize)
+            r.origin.y = min(r.origin.y, cropRect.maxY - minSize)
+        case .tr:
+            r.origin.y = min(r.origin.y, cropRect.maxY - minSize)
+        case .bl:
+            r.origin.x = min(r.origin.x, cropRect.maxX - minSize)
+        case .br: break
+        }
+
+        // constrain to allowedRect
         if r.minX < allowedRect.minX { r.origin.x = allowedRect.minX }
         if r.minY < allowedRect.minY { r.origin.y = allowedRect.minY }
-        if r.maxX > allowedRect.maxX { r.origin.x = allowedRect.maxX - r.width }
-        if r.maxY > allowedRect.maxY { r.origin.y = allowedRect.maxY - r.height }
+        if r.maxX > allowedRect.maxX { r.size.width = allowedRect.maxX - r.minX }
+        if r.maxY > allowedRect.maxY { r.size.height = allowedRect.maxY - r.minY }
 
         cropRect = r
-        updateHandlePositions()
-        setNeedsDisplay()
     }
 
-    @objc private func handlePanWhole(_ g: UIPanGestureRecognizer) {
-        let t = g.translation(in: self)
-        g.setTranslation(.zero, in: self)
+    // Expose to controller
+    var cropRectPublic: CGRect { cropRect }
 
-        var r = cropRect
-        r.origin.x += t.x
-        r.origin.y += t.y
-
-        // Clamp inside allowedRect
-        if r.minX < allowedRect.minX { r.origin.x = allowedRect.minX }
-        if r.minY < allowedRect.minY { r.origin.y = allowedRect.minY }
-        if r.maxX > allowedRect.maxX { r.origin.x = allowedRect.maxX - r.width }
-        if r.maxY > allowedRect.maxY { r.origin.y = allowedRect.maxY - r.height }
-
-        cropRect = r
-        updateHandlePositions()
-        setNeedsDisplay()
+    // Little circular handle view
+    private final class Handle: UIView {
+        override init(frame: CGRect) {
+            super.init(frame: CGRect(x: 0, y: 0, width: 18, height: 18))
+            backgroundColor = .white
+            layer.cornerRadius = 9
+            layer.borderWidth = 1
+            layer.borderColor = UIColor.black.withAlphaComponent(0.3).cgColor
+            isUserInteractionEnabled = true
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     }
+}
+
+// Convenience for controller access
+extension CropOverlayView {
+    var cropRectValue: CGRect { currentCropRect }
 }
