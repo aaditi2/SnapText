@@ -21,10 +21,10 @@ struct DocsGalleryView: View {
                                     .foregroundColor(.gray)
 
                                 HStack(spacing: 4) {
-                                    Image(systemName: "doc.text")
+                                    Image(systemName: doc.fileType == .spreadsheet ? "tablecells" : "doc.text")
                                         .font(.system(size: 14))
                                         .foregroundColor(.gray)
-                                    Text("Document")
+                                    Text(doc.fileType == .spreadsheet ? "Spreadsheet" : "Document")
                                         .font(.system(size: 14))
                                         .foregroundColor(.gray)
                                 }

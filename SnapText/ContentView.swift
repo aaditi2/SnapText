@@ -2,6 +2,7 @@ import SwiftUI
 import Vision
 import VisionKit
 import UniformTypeIdentifiers
+import CoreGraphics
 
 // Wrapper for Identifiable UIImage
 struct IdentifiableImage: Identifiable {
@@ -16,8 +17,9 @@ struct ContentView: View {
     @State private var selectedImage: UIImage?
     @State private var extractedText: String = ""
     @State private var savedDocs: [SavedDoc] = []
-    
+
     @State private var pendingImageForCropping: IdentifiableImage?
+    @State private var isTableDetected = false
 
     var body: some View {
         NavigationView {
@@ -103,10 +105,12 @@ struct ContentView: View {
                         // Save Button
                         if !extractedText.isEmpty {
                             Button(action: {
-                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText, fileType: .text)
+                                let fileType: DocFileType = isTableDetected ? .spreadsheet : .text
+                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText, fileType: fileType)
                                 savedDocs.append(doc)
                                 extractedText = ""
                                 selectedImage = nil
+                                isTableDetected = false
                             }) {
                                 HStack {
                                     Image(systemName: "tray.and.arrow.down.fill")
@@ -165,9 +169,35 @@ struct ContentView: View {
 
         let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         let request = VNRecognizeTextRequest { request, _ in
-            if let results = request.results as? [VNRecognizedTextObservation] {
+            guard let results = request.results as? [VNRecognizedTextObservation] else { return }
+
+            let sorted = results.sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+            var rows: [[VNRecognizedTextObservation]] = []
+            let threshold: CGFloat = 0.02
+            for obs in sorted {
+                if var last = rows.last, let first = last.first,
+                   abs(obs.boundingBox.midY - first.boundingBox.midY) < threshold {
+                    last.append(obs)
+                    rows[rows.count - 1] = last
+                } else {
+                    rows.append([obs])
+                }
+            }
+
+            let table = rows.map { row in
+                row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
+                    .compactMap { $0.topCandidates(1).first?.string }
+            }
+
+            let isTable = table.contains { $0.count > 1 }
+            if isTable {
+                let tableString = table.map { $0.joined(separator: "\t") }.joined(separator: "\n")
+                self.extractedText = tableString
+                self.isTableDetected = true
+            } else {
                 let text = results.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
                 self.extractedText = text
+                self.isTableDetected = false
             }
         }
 

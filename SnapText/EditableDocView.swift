@@ -22,12 +22,19 @@ struct EditableDocView: View {
                 .padding(.bottom, 12)
 
             // Main note editor
-            TextEditor(text: $doc.text)
-                .font(.system(size: 17))
-                .foregroundColor(.white)
-                .padding(.horizontal)
-                .scrollContentBackground(.hidden)
-                .frame(maxHeight: .infinity)
+            if doc.fileType == .spreadsheet {
+                TableEditor(text: $doc.text)
+                    .font(.system(size: 17))
+                    .padding(.horizontal)
+                    .frame(maxHeight: .infinity)
+            } else {
+                TextEditor(text: $doc.text)
+                    .font(.system(size: 17))
+                    .foregroundColor(.white)
+                    .padding(.horizontal)
+                    .scrollContentBackground(.hidden)
+                    .frame(maxHeight: .infinity)
+            }
 
             Divider()
 
