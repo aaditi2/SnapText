@@ -4,6 +4,7 @@ struct EditableDocView: View {
     @Binding var doc: SavedDoc
     @State private var showExportSheet = false
     @State private var exportURL: URL?
+    @State private var showExportOptions = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,10 +35,7 @@ struct EditableDocView: View {
             HStack(spacing: 30) {
                 Image(systemName: "checklist")
                 Button {
-                    if let url = ExportService.exportTextAsPDF(doc.text) {
-                        exportURL = url
-                        showExportSheet = true
-                    }
+                    showExportOptions = true
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -52,6 +50,24 @@ struct EditableDocView: View {
         .sheet(isPresented: $showExportSheet) {
             if let fileURL = exportURL {
                 ShareSheet(activityItems: [fileURL])
+            }
+        }
+        .confirmationDialog("Export", isPresented: $showExportOptions, titleVisibility: .visible) {
+            switch doc.fileType {
+            case .text:
+                Button("Export as PDF") {
+                    if let url = ExportService.exportTextAsPDF(doc.text) {
+                        exportURL = url
+                        showExportSheet = true
+                    }
+                }
+            case .spreadsheet:
+                Button("Export as XLS") {
+                    if let url = ExportService.exportTextAsXLS(doc.text) {
+                        exportURL = url
+                        showExportSheet = true
+                    }
+                }
             }
         }
     }
