@@ -53,6 +53,13 @@ class ExportService {
         }
     }
 
+    static func exportTextAsXLS(_ text: String) -> URL? {
+        let fileName = "SnapText-\(UUID().uuidString.prefix(5)).xls"
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try? text.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
     // DOCX support can be added via third-party libraries like SwiftDocx or WordWriter
     static func exportTextAsDOCX(_ text: String) -> URL? {
         let fileName = "SnapText-\(UUID().uuidString.prefix(5)).docx"

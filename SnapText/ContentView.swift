@@ -103,7 +103,7 @@ struct ContentView: View {
                         // Save Button
                         if !extractedText.isEmpty {
                             Button(action: {
-                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText)
+                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText, fileType: .text)
                                 savedDocs.append(doc)
                                 extractedText = ""
                                 selectedImage = nil
