@@ -1,33 +1,37 @@
 import SwiftUI
 import Vision
-import VisionKit
-import UniformTypeIdentifiers
 import CoreGraphics
 
-// Wrapper for Identifiable UIImage
+// Wrapper for Identifiable UIImage (unchanged)
 struct IdentifiableImage: Identifiable {
     let id = UUID()
     let image: UIImage
 }
 
 struct ContentView: View {
+
+    // MARK: - UI State
     @State private var showPhotoLibrary = false
     @State private var showCamera = false
     @State private var showDocumentPicker = false
+
     @State private var selectedImage: UIImage?
     @State private var extractedText: String = ""
     @State private var savedDocs: [SavedDoc] = []
 
-    @State private var pendingImageForCropping: IdentifiableImage?
-    @State private var isTableDetected = false
+    // MARK: - Parsing mode UI
+    enum ParseMode { case text, table }
+    @State private var parseMode: ParseMode = .text
+    @State private var suggestedIsTable: Bool = false
 
     var body: some View {
         NavigationView {
             ZStack {
                 Color(.systemGroupedBackground).ignoresSafeArea()
-                
+
                 ScrollView {
                     VStack(spacing: 24) {
+
                         // Header
                         VStack(spacing: 4) {
                             Image(systemName: "doc.text.viewfinder")
@@ -35,16 +39,16 @@ struct ContentView: View {
                                 .frame(width: 36, height: 36)
                                 .foregroundColor(.accentColor)
                                 .padding(.bottom, 4)
-                            
+
                             Text("SnapText")
                                 .font(.system(size: 26, weight: .semibold))
-                            
+
                             Text("Capture. Extract. Edit.")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top, 40)
-                        
+
                         // Upload Menu
                         Menu {
                             Button {
@@ -52,13 +56,13 @@ struct ContentView: View {
                             } label: {
                                 Label("Photo Library", systemImage: "photo.on.rectangle")
                             }
-                            
+
                             Button {
                                 showCamera = true
                             } label: {
                                 Label("Take Photo", systemImage: "camera")
                             }
-                            
+
                             Button {
                                 showDocumentPicker = true
                             } label: {
@@ -78,8 +82,8 @@ struct ContentView: View {
                             .padding(.horizontal)
                             .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
                         }
-                        
-                        // Image + OCR Text Display
+
+                        // Image + OCR/Text/Table
                         if let image = selectedImage {
                             VStack(alignment: .leading, spacing: 16) {
                                 Image(uiImage: image)
@@ -88,44 +92,90 @@ struct ContentView: View {
                                     .frame(maxHeight: 220)
                                     .cornerRadius(12)
                                     .shadow(radius: 3)
-                                
-                                Text("✏️ Extracted Text")
+
+                                // Mode toggle seeded by detection
+                                HStack(spacing: 10) {
+                                    Text("Parsed as:")
+                                        .font(.system(size: 14, weight: .semibold))
+
+                                    Picker("", selection: $parseMode) {
+                                        Text("Text").tag(ParseMode.text)
+                                        Text("Table").tag(ParseMode.table)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 260)
+
+                                    if suggestedIsTable {
+                                        Text("suggested")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .onChange(of: parseMode) { _ in
+                                    // Re-parse when user toggles
+                                    reparseCurrentImage()
+                                }
+
+                                Text(parseMode == .table ? "🧮 Table (TSV)" : "✏️ Extracted Text")
                                     .font(.system(size: 16, weight: .semibold))
-                                
+
                                 TextEditor(text: $extractedText)
                                     .font(.system(size: 14))
                                     .frame(height: 180)
                                     .padding(8)
                                     .background(Color(.secondarySystemBackground))
                                     .cornerRadius(8)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
                             }
                             .padding(.horizontal)
                         }
-                        
-                        // Save Button
-                        if !extractedText.isEmpty {
-                            Button(action: {
-                                let fileType: DocFileType = isTableDetected ? .spreadsheet : .text
-                                let doc = SavedDoc(id: UUID(), title: "Untitled", text: extractedText, fileType: fileType)
-                                savedDocs.append(doc)
-                                extractedText = ""
-                                selectedImage = nil
-                                isTableDetected = false
-                            }) {
-                                HStack {
-                                    Image(systemName: "tray.and.arrow.down.fill")
-                                    Text("Save as Document")
+
+                        // Save / Cancel
+                        if !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            HStack(spacing: 12) {
+                                // Cancel
+                                Button {
+                                    extractedText = ""
+                                    selectedImage = nil
+                                    suggestedIsTable = false
+                                    parseMode = .text
+                                } label: {
+                                    Label("Cancel", systemImage: "xmark.circle.fill")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .padding(.vertical, 10)
+                                        .frame(maxWidth: .infinity)
+                                        .background(Color.red)
+                                        .foregroundColor(.white)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
-                                .font(.system(size: 15, weight: .medium))
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 20)
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .clipShape(Capsule())
-                                .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
+
+                                // Save (fileType follows parseMode)
+                                Button {
+                                    let fileType: DocFileType = (parseMode == .table) ? .spreadsheet : .text
+                                    let doc = SavedDoc(id: UUID(),
+                                                       title: "Untitled",
+                                                       text: extractedText,
+                                                       fileType: fileType)
+                                    savedDocs.append(doc)
+                                    extractedText = ""
+                                    selectedImage = nil
+                                    suggestedIsTable = false
+                                    parseMode = .text
+                                } label: {
+                                    Label("Save as \(parseMode == .table ? "Spreadsheet" : "Document")",
+                                          systemImage: "tray.and.arrow.down.fill")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .padding(.vertical, 10)
+                                        .frame(maxWidth: .infinity)
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
                             }
+                            .padding(.horizontal)
                         }
-                        
+
                         // Docs Gallery
                         NavigationLink(destination: DocsGalleryView(savedDocs: $savedDocs)) {
                             Label("Docs Gallery", systemImage: "books.vertical.fill")
@@ -133,7 +183,7 @@ struct ContentView: View {
                                 .foregroundColor(.blue)
                                 .padding(.top, 10)
                         }
-                        
+
                         Spacer(minLength: 50)
                     }
                     .padding(.bottom, 40)
@@ -141,82 +191,92 @@ struct ContentView: View {
             }
             .navigationBarHidden(true)
         }
-        
-        // Image Pickers
+
+        // Pickers / Camera
         .sheet(isPresented: $showPhotoLibrary) {
             ImagePicker(sourceType: .photoLibrary) { image in
-                handleImage(image)
+                handleNewImage(image)
             }
         }
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPicker { image in
-                handleImage(image)
+                handleNewImage(image)
             }
         }
-        
-        // Camera Capture → Crop
         .fullScreenCover(isPresented: $showCamera) {
             CustomCameraView { croppedImage in
-                handleImage(croppedImage)
+                handleNewImage(croppedImage)
             }
         }
     }
 
-    // OCR
-    private func handleImage(_ image: UIImage) {
-        self.selectedImage = image
-        guard let cgImage = image.cgImage else { return }
+    // MARK: - Image handling / parsing
 
-        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        let request = VNRecognizeTextRequest { request, _ in
-            guard let results = request.results as? [VNRecognizedTextObservation] else { return }
+    private func handleNewImage(_ image: UIImage) {
+        selectedImage = image
+        extractedText = ""
+        suggestedIsTable = false
+        parseMode = .text
 
-            let sorted = results.sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-            var rows: [[VNRecognizedTextObservation]] = []
-            let threshold: CGFloat = 0.02
-            for obs in sorted {
-                if var last = rows.last, let first = last.first,
-                   abs(obs.boundingBox.midY - first.boundingBox.midY) < threshold {
-                    last.append(obs)
-                    rows[rows.count - 1] = last
-                } else {
-                    rows.append([obs])
-                }
-            }
+        // Seed suggestion using your TableDetector first (more reliable),
+        // then fallback to plain text if no table found.
+        if let detected = TableDetector.detect(from: image, mode: .fast),
+           isGoodTable(detected.rows) {
+            // looks like a real table → seed UI + content as table
+            suggestedIsTable = true
+            parseMode = .table
+            extractedText = tsv(from: detected.rows)
+        } else {
+            // fallback to text
+            parseAsText(image)
+        }
+    }
 
-            // Sort observations in each row from left to right
-            let columnsPerRow = rows.map { row in
-                row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
-            }
-
-            // Determine if a tabular structure exists by checking
-            // for consistent column alignment across multiple rows
-            let tolerance: CGFloat = 0.02
-            var alignedRowCount = 0
-            if let firstRow = columnsPerRow.first, firstRow.count > 1 {
-                alignedRowCount = 1
-                for row in columnsPerRow.dropFirst() {
-                    guard row.count == firstRow.count else { continue }
-                    let aligns = zip(row, firstRow).allSatisfy { abs($0.boundingBox.midX - $1.boundingBox.midX) < tolerance }
-                    if aligns { alignedRowCount += 1 }
-                }
-            }
-
-            let isTable = alignedRowCount >= 2
-            if isTable {
-                let tableString = columnsPerRow.map { row in
-                    row.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\t")
-                }.joined(separator: "\n")
-                self.extractedText = tableString
-                self.isTableDetected = true
+    private func reparseCurrentImage() {
+        guard let image = selectedImage else { return }
+        switch parseMode {
+        case .table:
+            // Try strong table parse; fallback to last known text if fails
+            if let detected = TableDetector.detect(from: image, mode: .fast),
+               isGoodTable(detected.rows) {
+                extractedText = tsv(from: detected.rows)
             } else {
-                let text = results.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                extractedText = "No table detected. Try switching to Text."
+            }
+        case .text:
+            parseAsText(image)
+        }
+    }
+
+    private func parseAsText(_ image: UIImage) {
+        guard let cg = image.cgImage else { return }
+        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+        let req = VNRecognizeTextRequest { req, _ in
+            let text = (req.results as? [VNRecognizedTextObservation])?
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n") ?? ""
+            DispatchQueue.main.async {
                 self.extractedText = text
-                self.isTableDetected = false
             }
         }
+        req.recognitionLevel = .accurate
+        req.usesLanguageCorrection = true
+        if #available(iOS 16.0, *) { req.revision = VNRecognizeTextRequestRevision3 }
+        try? handler.perform([req])
+    }
 
-        request.recognitionLevel = .accurate
-        try? requestHandler.perform([request])
+    // MARK: - Helpers
+
+    /// Quick sanity: need at least 2 rows * 2 cols and some non-empty cells.
+    private func isGoodTable(_ rows: [[String]]) -> Bool {
+        guard rows.count >= 2 else { return false }
+        let maxCols = rows.map { $0.count }.max() ?? 0
+        guard maxCols >= 2 else { return false }
+        let nonEmpty = rows.flatMap { $0 }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return nonEmpty.count >= 4
+    }
+
+    private func tsv(from rows: [[String]]) -> String {
+        rows.map { $0.joined(separator: "\t") }.joined(separator: "\n")
     }
 }

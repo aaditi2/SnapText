@@ -5,9 +5,10 @@ enum DocFileType: String, Codable {
     case spreadsheet
 }
 
+
 struct SavedDoc: Identifiable, Codable {
     var id: UUID
     var title: String
     var text: String
-    var fileType: DocFileType
+    var fileType: DocFileType = .text
 }
