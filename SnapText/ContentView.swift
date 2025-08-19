@@ -184,14 +184,29 @@ struct ContentView: View {
                 }
             }
 
-            let table = rows.map { row in
+            // Sort observations in each row from left to right
+            let columnsPerRow = rows.map { row in
                 row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
-                    .compactMap { $0.topCandidates(1).first?.string }
             }
 
-            let isTable = table.contains { $0.count > 1 }
+            // Determine if a tabular structure exists by checking
+            // for consistent column alignment across multiple rows
+            let tolerance: CGFloat = 0.02
+            var alignedRowCount = 0
+            if let firstRow = columnsPerRow.first, firstRow.count > 1 {
+                alignedRowCount = 1
+                for row in columnsPerRow.dropFirst() {
+                    guard row.count == firstRow.count else { continue }
+                    let aligns = zip(row, firstRow).allSatisfy { abs($0.boundingBox.midX - $1.boundingBox.midX) < tolerance }
+                    if aligns { alignedRowCount += 1 }
+                }
+            }
+
+            let isTable = alignedRowCount >= 2
             if isTable {
-                let tableString = table.map { $0.joined(separator: "\t") }.joined(separator: "\n")
+                let tableString = columnsPerRow.map { row in
+                    row.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\t")
+                }.joined(separator: "\n")
                 self.extractedText = tableString
                 self.isTableDetected = true
             } else {

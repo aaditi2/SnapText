@@ -40,7 +40,6 @@ struct EditableDocView: View {
 
             // Bottom toolbar (like Apple Notes)
             HStack(spacing: 30) {
-                Image(systemName: "checklist")
                 Button {
                     showExportOptions = true
                 } label: {
