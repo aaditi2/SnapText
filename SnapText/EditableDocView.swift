@@ -8,51 +8,55 @@ struct EditableDocView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Editable title field
-            TextField("Title", text: $doc.title)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal)
-                .padding(.top, 20)
 
-            // Optional timestamp
+            // Title editor inside the content (still editable)
+            TextField("Title", text: $doc.title)
+                .font(.system(size: 22, weight: .semibold))
+                .padding(.horizontal)
+                .padding(.top, 12)
+
+            // Timestamp
             Text(formattedDate())
                 .font(.footnote)
                 .foregroundColor(.gray)
                 .padding(.bottom, 12)
 
-            // Main note editor
-            if doc.fileType == .spreadsheet {
-                TableEditor(text: $doc.text)
-                    .font(.system(size: 17))
-                    .padding(.horizontal)
-                    .frame(maxHeight: .infinity)
-            } else {
-                TextEditor(text: $doc.text)
-                    .font(.system(size: 17))
-                    .foregroundColor(.white)
-                    .padding(.horizontal)
-                    .scrollContentBackground(.hidden)
-                    .frame(maxHeight: .infinity)
+            // Main editor
+            Group {
+                if doc.fileType == .spreadsheet {
+                    TableEditor(text: $doc.text)
+                        .font(.system(size: 17))
+                        .padding(.horizontal)
+                        .frame(maxHeight: .infinity)
+                } else {
+                    TextEditor(text: $doc.text)
+                        .font(.system(size: 17))
+                        .padding(.horizontal)
+                        .scrollContentBackground(.hidden)
+                        .frame(maxHeight: .infinity)
+                }
             }
 
             Divider()
 
-            // Bottom toolbar (like Apple Notes)
+            // Toolbar
             HStack(spacing: 30) {
-                Button {
-                    showExportOptions = true
-                } label: {
+                Button(action: { showExportOptions = true }) {
                     Image(systemName: "square.and.arrow.up")
+                        .imageScale(.large)
                 }
             }
             .font(.system(size: 20, weight: .medium))
             .padding()
             .foregroundColor(.yellow)
         }
+        // Use nav bar for the title so Back shows “Docs Gallery”
+        .navigationTitle(doc.title.isEmpty ? "Untitled" : doc.title)
         .navigationBarTitleDisplayMode(.inline)
         .background(Color.black.edgesIgnoringSafeArea(.all))
         .preferredColorScheme(.dark)
+
+        // Share + export
         .sheet(isPresented: $showExportSheet) {
             if let fileURL = exportURL {
                 ShareSheet(activityItems: [fileURL])
@@ -79,9 +83,9 @@ struct EditableDocView: View {
     }
 
     private func formattedDate() -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: Date())
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: Date())
     }
 }
