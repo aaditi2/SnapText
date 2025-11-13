@@ -266,9 +266,7 @@ struct ContentView: View {
     }
 
     private func detectTable(in image: UIImage, mode: TableDetectMode) async -> DetectedTable? {
-        await Task.detached(priority: .userInitiated) {
-            TableDetector.detect(from: image, mode: mode)
-        }.value
+        await TableDetector.detect(from: image, mode: mode)
     }
 
     // MARK: - Helpers
