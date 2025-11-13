@@ -405,7 +405,7 @@ private struct FloatingTextViewRepresentable: UIViewRepresentable {
                 }
                 .filter { !$0.isNull && !$0.isInfinite && !$0.isEmpty }
 
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.parent.selectionRects = rects
             }
         }
