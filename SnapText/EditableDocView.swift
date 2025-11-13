@@ -29,10 +29,8 @@ struct EditableDocView: View {
                         .padding(.horizontal)
                         .frame(maxHeight: .infinity)
                 } else {
-                    TextEditor(text: $doc.text)
-                        .font(.system(size: 17))
+                    FloatingTextEditingCanvas(text: $doc.text)
                         .padding(.horizontal)
-                        .scrollContentBackground(.hidden)
                         .frame(maxHeight: .infinity)
                 }
             }
