@@ -1,5 +1,4 @@
 import SwiftUI
-import Vision
 import CoreGraphics
 
 // Wrapper for Identifiable UIImage (unchanged)
@@ -218,51 +217,58 @@ struct ContentView: View {
         suggestedIsTable = false
         parseMode = .text
 
-        // Seed suggestion using your TableDetector first (more reliable),
-        // then fallback to plain text if no table found.
-        if let detected = TableDetector.detect(from: image, mode: .fast),
-           isGoodTable(detected.rows) {
-            // looks like a real table → seed UI + content as table
-            suggestedIsTable = true
-            parseMode = .table
-            extractedText = tsv(from: detected.rows)
-        } else {
-            // fallback to text
-            parseAsText(image)
+        Task(priority: .userInitiated) {
+            if let detected = await detectTable(in: image, mode: .fast),
+               isGoodTable(detected.rows) {
+                await MainActor.run {
+                    suggestedIsTable = true
+                    parseMode = .table
+                    extractedText = tsv(from: detected.rows)
+                }
+            } else {
+                await parseAsText(image)
+            }
         }
     }
 
     private func reparseCurrentImage() {
         guard let image = selectedImage else { return }
-        switch parseMode {
-        case .table:
-            // Try strong table parse; fallback to last known text if fails
-            if let detected = TableDetector.detect(from: image, mode: .fast),
-               isGoodTable(detected.rows) {
-                extractedText = tsv(from: detected.rows)
-            } else {
-                extractedText = "No table detected. Try switching to Text."
+        Task(priority: .userInitiated) {
+            switch parseMode {
+            case .table:
+                if let detected = await detectTable(in: image, mode: .fast),
+                   isGoodTable(detected.rows) {
+                    await MainActor.run {
+                        extractedText = tsv(from: detected.rows)
+                    }
+                } else {
+                    await MainActor.run {
+                        extractedText = "No table detected. Try switching to Text."
+                    }
+                }
+            case .text:
+                await parseAsText(image)
             }
-        case .text:
-            parseAsText(image)
         }
     }
 
-    private func parseAsText(_ image: UIImage) {
-        guard let cg = image.cgImage else { return }
-        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-        let req = VNRecognizeTextRequest { req, _ in
-            let text = (req.results as? [VNRecognizedTextObservation])?
-                .compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: "\n") ?? ""
-            DispatchQueue.main.async {
-                self.extractedText = text
+    private func parseAsText(_ image: UIImage) async {
+        do {
+            let text = try await OCRService.recognizeText(in: image)
+            await MainActor.run {
+                extractedText = text
+            }
+        } catch {
+            await MainActor.run {
+                extractedText = "Unable to extract text. Please try again."
             }
         }
-        req.recognitionLevel = .accurate
-        req.usesLanguageCorrection = true
-        if #available(iOS 16.0, *) { req.revision = VNRecognizeTextRequestRevision3 }
-        try? handler.perform([req])
+    }
+
+    private func detectTable(in image: UIImage, mode: TableDetectMode) async -> DetectedTable? {
+        await Task.detached(priority: .userInitiated) {
+            TableDetector.detect(from: image, mode: mode)
+        }.value
     }
 
     // MARK: - Helpers
