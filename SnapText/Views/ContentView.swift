@@ -1,28 +1,13 @@
 import SwiftUI
-import CoreGraphics
-
-// Wrapper for Identifiable UIImage (unchanged)
-struct IdentifiableImage: Identifiable {
-    let id = UUID()
-    let image: UIImage
-}
 
 struct ContentView: View {
+
+    @StateObject private var viewModel = ContentViewModel()
 
     // MARK: - UI State
     @State private var showPhotoLibrary = false
     @State private var showCamera = false
     @State private var showDocumentPicker = false
-
-    @State private var selectedImage: UIImage?
-    @State private var extractedText: String = ""
-    @State private var savedDocs: [SavedDoc] = []
-
-    // MARK: - Parsing mode UI
-    enum ParseMode { case text, table }
-    @State private var parseMode: ParseMode = .text
-    @State private var suggestedIsTable: Bool = false
-    @State private var currentParseToken = UUID()
 
     var body: some View {
         NavigationView {
@@ -84,7 +69,7 @@ struct ContentView: View {
                         }
 
                         // Image + OCR/Text/Table
-                        if let image = selectedImage {
+                        if let image = viewModel.selectedImage {
                             VStack(alignment: .leading, spacing: 16) {
                                 Image(uiImage: image)
                                     .resizable()
@@ -98,28 +83,28 @@ struct ContentView: View {
                                     Text("Parsed as:")
                                         .font(.system(size: 14, weight: .semibold))
 
-                                    Picker("", selection: $parseMode) {
-                                        Text("Text").tag(ParseMode.text)
-                                        Text("Table").tag(ParseMode.table)
+                                    Picker("", selection: $viewModel.parseMode) {
+                                        Text("Text").tag(ContentViewModel.ParseMode.text)
+                                        Text("Table").tag(ContentViewModel.ParseMode.table)
                                     }
                                     .pickerStyle(.segmented)
                                     .frame(maxWidth: 260)
 
-                                    if suggestedIsTable {
+                                    if viewModel.suggestedIsTable {
                                         Text("suggested")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
                                 }
-                                .onChange(of: parseMode) { _ in
+                                .onChange(of: viewModel.parseMode) { _ in
                                     // Re-parse when user toggles
-                                    reparseCurrentImage()
+                                    viewModel.reparseCurrentImage()
                                 }
 
-                                Text(parseMode == .table ? "🧮 Table (TSV)" : "✏️ Extracted Text")
+                                Text(viewModel.parseMode == .table ? "🧮 Table (TSV)" : "✏️ Extracted Text")
                                     .font(.system(size: 16, weight: .semibold))
 
-                                TextEditor(text: $extractedText)
+                                TextEditor(text: $viewModel.extractedText)
                                     .font(.system(size: 14))
                                     .frame(height: 180)
                                     .padding(8)
@@ -132,14 +117,11 @@ struct ContentView: View {
                         }
 
                         // Save / Cancel
-                        if !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if viewModel.hasExtractedText {
                             HStack(spacing: 12) {
                                 // Cancel
                                 Button {
-                                    extractedText = ""
-                                    selectedImage = nil
-                                    suggestedIsTable = false
-                                    parseMode = .text
+                                    viewModel.cancelExtraction()
                                 } label: {
                                     Label("Cancel", systemImage: "xmark.circle.fill")
                                         .font(.system(size: 15, weight: .semibold))
@@ -152,18 +134,9 @@ struct ContentView: View {
 
                                 // Save (fileType follows parseMode)
                                 Button {
-                                    let fileType: DocFileType = (parseMode == .table) ? .spreadsheet : .text
-                                    let doc = SavedDoc(id: UUID(),
-                                                       title: "Untitled",
-                                                       text: extractedText,
-                                                       fileType: fileType)
-                                    savedDocs.append(doc)
-                                    extractedText = ""
-                                    selectedImage = nil
-                                    suggestedIsTable = false
-                                    parseMode = .text
+                                    viewModel.saveCurrentExtraction()
                                 } label: {
-                                    Label("Save as \(parseMode == .table ? "Spreadsheet" : "Document")",
+                                    Label("Save as \(viewModel.parseMode == .table ? "Spreadsheet" : "Document")",
                                           systemImage: "tray.and.arrow.down.fill")
                                         .font(.system(size: 15, weight: .semibold))
                                         .padding(.vertical, 10)
@@ -177,7 +150,7 @@ struct ContentView: View {
                         }
 
                         // Docs Gallery
-                        NavigationLink(destination: DocsGalleryView(savedDocs: $savedDocs)) {
+                        NavigationLink(destination: DocsGalleryView(savedDocs: $viewModel.savedDocs)) {
                             Label("Docs Gallery", systemImage: "books.vertical.fill")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(.blue)
@@ -195,107 +168,18 @@ struct ContentView: View {
         // Pickers / Camera
         .sheet(isPresented: $showPhotoLibrary) {
             ImagePicker(sourceType: .photoLibrary) { image in
-                handleNewImage(image)
+                viewModel.handleNewImage(image)
             }
         }
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPicker { image in
-                handleNewImage(image)
+                viewModel.handleNewImage(image)
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
             CustomCameraView { croppedImage in
-                handleNewImage(croppedImage)
+                viewModel.handleNewImage(croppedImage)
             }
         }
-    }
-
-    // MARK: - Image handling / parsing
-
-    private func handleNewImage(_ image: UIImage) {
-        selectedImage = image
-        extractedText = ""
-        suggestedIsTable = false
-        parseMode = .text
-
-        let token = startNewParseRequest()
-
-        Task(priority: .userInitiated) {
-            if let detected = await detectTable(in: image, mode: .fast),
-               isGoodTable(detected.rows) {
-                await MainActor.run {
-                    guard token == currentParseToken else { return }
-                    suggestedIsTable = true
-                    parseMode = .table
-                    extractedText = tsv(from: detected.rows)
-                }
-            } else {
-                await parseAsText(image, token: token)
-            }
-        }
-    }
-
-    private func reparseCurrentImage() {
-        guard let image = selectedImage else { return }
-        let token = startNewParseRequest()
-        Task(priority: .userInitiated) {
-            switch parseMode {
-            case .table:
-                if let detected = await detectTable(in: image, mode: .fast),
-                   isGoodTable(detected.rows) {
-                    await MainActor.run {
-                        guard token == currentParseToken else { return }
-                        extractedText = tsv(from: detected.rows)
-                    }
-                } else {
-                    await MainActor.run {
-                        guard token == currentParseToken else { return }
-                        extractedText = "No table detected. Try switching to Text."
-                    }
-                }
-            case .text:
-                await parseAsText(image, token: token)
-            }
-        }
-    }
-
-    private func parseAsText(_ image: UIImage, token: UUID) async {
-        do {
-            let text = try await OCRService.recognizeText(in: image)
-            await MainActor.run {
-                guard token == currentParseToken else { return }
-                extractedText = text
-            }
-        } catch {
-            await MainActor.run {
-                guard token == currentParseToken else { return }
-                extractedText = "Unable to extract text. Please try again."
-            }
-        }
-    }
-
-    private func detectTable(in image: UIImage, mode: TableDetectMode) async -> DetectedTable? {
-        await TableDetector.detect(from: image, mode: mode)
-    }
-
-    // MARK: - Helpers
-
-    /// Quick sanity: need at least 2 rows * 2 cols and some non-empty cells.
-    private func isGoodTable(_ rows: [[String]]) -> Bool {
-        guard rows.count >= 2 else { return false }
-        let maxCols = rows.map { $0.count }.max() ?? 0
-        guard maxCols >= 2 else { return false }
-        let nonEmpty = rows.flatMap { $0 }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        return nonEmpty.count >= 4
-    }
-
-    private func tsv(from rows: [[String]]) -> String {
-        rows.map { $0.joined(separator: "\t") }.joined(separator: "\n")
-    }
-
-    private func startNewParseRequest() -> UUID {
-        let token = UUID()
-        currentParseToken = token
-        return token
     }
 }
