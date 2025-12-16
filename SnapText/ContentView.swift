@@ -22,6 +22,7 @@ struct ContentView: View {
     enum ParseMode { case text, table }
     @State private var parseMode: ParseMode = .text
     @State private var suggestedIsTable: Bool = false
+    @State private var currentParseToken = UUID()
 
     var body: some View {
         NavigationView {
@@ -217,49 +218,57 @@ struct ContentView: View {
         suggestedIsTable = false
         parseMode = .text
 
+        let token = startNewParseRequest()
+
         Task(priority: .userInitiated) {
             if let detected = await detectTable(in: image, mode: .fast),
                isGoodTable(detected.rows) {
                 await MainActor.run {
+                    guard token == currentParseToken else { return }
                     suggestedIsTable = true
                     parseMode = .table
                     extractedText = tsv(from: detected.rows)
                 }
             } else {
-                await parseAsText(image)
+                await parseAsText(image, token: token)
             }
         }
     }
 
     private func reparseCurrentImage() {
         guard let image = selectedImage else { return }
+        let token = startNewParseRequest()
         Task(priority: .userInitiated) {
             switch parseMode {
             case .table:
                 if let detected = await detectTable(in: image, mode: .fast),
                    isGoodTable(detected.rows) {
                     await MainActor.run {
+                        guard token == currentParseToken else { return }
                         extractedText = tsv(from: detected.rows)
                     }
                 } else {
                     await MainActor.run {
+                        guard token == currentParseToken else { return }
                         extractedText = "No table detected. Try switching to Text."
                     }
                 }
             case .text:
-                await parseAsText(image)
+                await parseAsText(image, token: token)
             }
         }
     }
 
-    private func parseAsText(_ image: UIImage) async {
+    private func parseAsText(_ image: UIImage, token: UUID) async {
         do {
             let text = try await OCRService.recognizeText(in: image)
             await MainActor.run {
+                guard token == currentParseToken else { return }
                 extractedText = text
             }
         } catch {
             await MainActor.run {
+                guard token == currentParseToken else { return }
                 extractedText = "Unable to extract text. Please try again."
             }
         }
@@ -282,5 +291,11 @@ struct ContentView: View {
 
     private func tsv(from rows: [[String]]) -> String {
         rows.map { $0.joined(separator: "\t") }.joined(separator: "\n")
+    }
+
+    private func startNewParseRequest() -> UUID {
+        let token = UUID()
+        currentParseToken = token
+        return token
     }
 }
