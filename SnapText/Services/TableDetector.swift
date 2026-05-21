@@ -1,6 +1,8 @@
 import UIKit
 import Vision
 
+private let telemetry = TelemetryManager.shared
+
 public struct DetectedTable {
     public var rows: [[String]]
     public var sourceImage: UIImage?
@@ -16,7 +18,11 @@ public final actor TableDetector {
         from image: UIImage,
         mode: TableDetectMode = .fast
     ) async -> DetectedTable? {
-        guard let cg = image.cgImage else { return nil }
+        let started = Date()
+        guard let cg = image.cgImage else {
+            telemetry.track(.tableDetectionFailed, metadata: ["error": "invalid_image"])
+            return nil
+        }
 
         do {
             // 1️⃣ Perform OCR asynchronously
@@ -49,6 +55,7 @@ public final actor TableDetector {
             let hasAnyText = grid.flatMap { $0 }.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             guard grid.count >= 2, (grid.first?.count ?? 0) >= 2, hasAnyText else { return nil }
 
+            telemetry.track(.tableDetected, metadata: ["table_rows_detected": "\(grid.count)", "table_columns_detected": "\(grid.first?.count ?? 0)", "table_detection_duration_ms": "\(Int(Date().timeIntervalSince(started)*1000))"])
             return DetectedTable(rows: grid, sourceImage: image)
         } catch {
             print("⚠️ TableDetector failed: \(error)")
