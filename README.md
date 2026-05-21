@@ -27,6 +27,17 @@ It allows users to capture, edit, and export documents into professional formats
   - Editable **.xlsx** (Excel)  
   - **.pdf** or **.txt**  
 
+
+## 📡 Telemetry
+
+SnapText includes a privacy-aware telemetry pipeline for reliability and product diagnostics.
+
+- Event queueing + local persistence
+- Session hashing + metadata minimization
+- KPI snapshots and debug export tools
+
+See `SnapText/Telemetry/README.md` for implementation details.
+
 ---
 
 ## 📸 Screenshots
