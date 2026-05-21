@@ -49,7 +49,7 @@ struct EditableDocView: View {
             .foregroundColor(.yellow)
         }
         // Use nav bar for the title so Back shows “Docs Gallery”
-        .navigationTitle(doc.title.isEmpty ? "Untitled" : doc.title)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color.black.edgesIgnoringSafeArea(.all))
         .preferredColorScheme(.dark)
