@@ -5,9 +5,6 @@ struct FloatingTextEditingCanvas: View {
     @Binding var text: String
     @State private var selectionRects: [CGRect] = []
     @State private var selectedRange: NSRange = NSRange(location: 0, length: 0)
-    @State private var isDictating = false
-    @State private var dictationBuffer: String = ""
-    @State private var handwritingBuffer: String = ""
 
     private let canvasPadding: CGFloat = 22
 
@@ -32,107 +29,17 @@ struct FloatingTextEditingCanvas: View {
 
                     SelectionOverlay(selectionRects: selectionRects)
                         .padding(EdgeInsets(top: canvasPadding, leading: canvasPadding, bottom: canvasPadding, trailing: canvasPadding))
-
-                    dictationControl
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(dictationOverlay)
             }
             .frame(minHeight: 260, maxHeight: .infinity)
 
             suggestionBar
-
-            handwritingPanel
         }
     }
 
-    @ViewBuilder
-    private var dictationControl: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isDictating.toggle()
-                dictationBuffer = ""
-            }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 16, weight: .semibold))
-                Text(isDictating ? "Stop" : "Dictate")
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.12))
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(Color.white.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .padding(.top, 16)
-        .padding(.trailing, 16)
-        .buttonStyle(.plain)
-    }
 
-    @ViewBuilder
-    private var dictationOverlay: some View {
-        if isDictating {
-            VStack {
-                Spacer()
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Label("Dictation", systemImage: "mic.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                        Spacer()
-                        Button("Insert") {
-                            applyDictation()
-                        }
-                        .font(.system(size: 15, weight: .semibold))
-                    }
-                    Text("Simulated listening… Type what you would say to insert it into the text.")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.7))
 
-                    TextEditor(text: $dictationBuffer)
-                        .frame(height: 90)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .padding(18)
-                .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Color.black.opacity(0.82))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.45), radius: 22, x: 0, y: 18)
-                )
-                .padding(24)
-            }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
-    private func applyDictation() {
-        let trimmed = dictationBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let safeLocation = max(0, min(selectedRange.location, text.count))
-        let safeLength = max(0, min(selectedRange.length, text.count - safeLocation))
-        let replacementRange = NSRange(location: safeLocation, length: safeLength)
-
-        if let range = Range(replacementRange, in: text) {
-            let startOffset = range.lowerBound.utf16Offset(in: text)
-            text.replaceSubrange(range, with: trimmed)
-            selectedRange = NSRange(location: startOffset + trimmed.count, length: 0)
-        }
-
-        dictationBuffer = ""
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isDictating = false
-        }
-    }
 
     @ViewBuilder
     private var suggestionBar: some View {
@@ -218,45 +125,6 @@ struct FloatingTextEditingCanvas: View {
     }
 
 
-    @ViewBuilder
-    private var handwritingPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Handwriting Correction", systemImage: "pencil.and.outline")
-                    .font(.system(size: 15, weight: .semibold))
-                Spacer()
-                Button("Apply") {
-                    applyHandwriting()
-                }
-                .font(.system(size: 14, weight: .semibold))
-            }
-            Text("Jot quick pen-style corrections — we will drop them at your cursor.")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.65))
-            HandwritingInputField(text: $handwritingBuffer)
-                .frame(height: 110)
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-        )
-    }
-
-    private func applyHandwriting() {
-        let trimmed = handwritingBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let safeLocation = max(0, min(selectedRange.location, text.count))
-        if let insertionIndex = text.index(text.startIndex, offsetBy: safeLocation, limitedBy: text.endIndex) {
-            text.insert(contentsOf: (safeLocation == 0 ? "" : " ") + trimmed, at: insertionIndex)
-            selectedRange = NSRange(location: safeLocation + trimmed.count + (safeLocation == 0 ? 0 : 1), length: 0)
-        }
-        handwritingBuffer = ""
-    }
 }
 
 // MARK: - Selection Overlay
@@ -303,41 +171,6 @@ private struct SelectionHandle: View {
     }
 }
 
-// MARK: - Handwriting Input
-
-private struct HandwritingInputField: View {
-    @Binding var text: String
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black.opacity(0.78))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .overlay(
-                    Canvas { context, size in
-                        let gridSpacing: CGFloat = 18
-                        var path = Path()
-                        var y: CGFloat = gridSpacing
-                        while y < size.height {
-                            path.move(to: CGPoint(x: 0, y: y))
-                            path.addLine(to: CGPoint(x: size.width, y: y))
-                            y += gridSpacing
-                        }
-                        context.stroke(path, with: .color(Color.white.opacity(0.08)), lineWidth: 1)
-                    }
-                )
-            TextEditor(text: $text)
-                .padding(12)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-                .font(.system(size: 18, weight: .regular, design: .rounded))
-                .foregroundColor(Color.white.opacity(0.95))
-        }
-    }
-}
 
 // MARK: - UITextView Bridge
 
