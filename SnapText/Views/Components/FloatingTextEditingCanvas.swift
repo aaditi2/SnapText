@@ -34,98 +34,13 @@ struct FloatingTextEditingCanvas: View {
             }
             .frame(minHeight: 260, maxHeight: .infinity)
 
-            suggestionBar
         }
     }
 
 
 
 
-    @ViewBuilder
-    private var suggestionBar: some View {
-        let suggestions = suggestionCandidates()
-        if !suggestions.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(suggestions, id: \.self) { suggestion in
-                        Button(action: {
-                            applySuggestion(suggestion)
-                        }) {
-                            Text(suggestion)
-                                .font(.system(size: 15, weight: .medium))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color.white.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-            }
-            .frame(height: 44)
-        }
-    }
-
-    private func suggestionCandidates() -> [String] {
-        let words = text.split(whereSeparator: { !$0.isLetter })
-        guard let last = words.last else { return ["Check", "Correct", "Clean"] }
-        let base = String(last)
-        var ordered: [String] = []
-        func appendUnique(_ candidate: String) {
-            if !ordered.contains(candidate) {
-                ordered.append(candidate)
-            }
-        }
-        if base.count > 3 {
-            appendUnique(base.capitalized)
-            appendUnique(base.lowercased())
-            appendUnique(base + "?")
-            appendUnique(base + "!")
-        } else {
-            ["Correct", "Review", "Confirm"].forEach(appendUnique)
-        }
-        return Array(ordered.prefix(5))
-    }
-
-    private func applySuggestion(_ suggestion: String) {
-        if let range = rangeOfLastEditableWord(in: text) {
-            let startOffset = range.lowerBound.utf16Offset(in: text)
-            text.replaceSubrange(range, with: suggestion)
-            selectedRange = NSRange(location: startOffset + suggestion.count, length: 0)
-        } else {
-            text = suggestion
-            selectedRange = NSRange(location: suggestion.count, length: 0)
-        }
-    }
-
-
-    private func rangeOfLastEditableWord(in value: String) -> Range<String.Index>? {
-        var end = value.endIndex
-        while end > value.startIndex {
-            let previous = value.index(before: end)
-            if value[previous].isWhitespace || value[previous].isNewline {
-                end = previous
-                continue
-            }
-            var cursor = previous
-            var start = previous
-            while cursor > value.startIndex {
-                let before = value.index(before: cursor)
-                if value[before].isWhitespace || value[before].isNewline {
-                    break
-                }
-                cursor = before
-                start = before
-            }
-            let rangeEnd = value.index(after: previous)
-            return start..<rangeEnd
-        }
-        return nil
-    }
-
-
-}
+    
 
 // MARK: - Selection Overlay
 
